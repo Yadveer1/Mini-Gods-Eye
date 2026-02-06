@@ -1,0 +1,16 @@
+# // [GODS_EYE]: Python Dependencies
+# // [STATUS]: Production Ready
+
+# Core Framework
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+
+# Computer Vision
+opencv-python==4.10.0.84
+ultralytics>=8.3.0
+
+# Utilities
+python-multipart==0.0.9
+
+# // [FIX]: Pin torch to avoid weights_only compatibility issue
+# torch will be installed as ultralytics dependency
