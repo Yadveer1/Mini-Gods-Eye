@@ -45,6 +45,13 @@ class FaceDatabase:
         
         self._load_known_faces()
     
+    def reload_faces(self) -> None:
+        """
+        // [RELOAD]: Re-scan known_faces directory
+        """
+        self.known_faces.clear()
+        self._load_known_faces()
+    
     def _load_known_faces(self) -> None:
         """
         // [SYSTEM_LOG]: Scan known_faces folder and catalog images
@@ -83,23 +90,45 @@ class FaceDatabase:
             return ("UNKNOWN", 0.0, False)
         
         try:
+            # // [SAVE]: numpy array to temp file for DeepFace
+            import tempfile
+            temp_path = None
+            
+            if isinstance(face_image, str):
+                temp_path = face_image
+            else:
+                # face_image is numpy array - save to temp file
+                temp_file = tempfile.NamedTemporaryFile(suffix='.jpg', delete=False)
+                temp_path = temp_file.name
+                temp_file.close()
+                cv2.imwrite(temp_path, face_image)
+            
             # // [COMPARE]: Check against each known face
             for name, known_path in self.known_faces.items():
                 try:
                     result = DeepFace.verify(
-                        img1_path=face_image,
+                        img1_path=temp_path,
                         img2_path=known_path,
                         model_name="VGG-Face",
                         enforce_detection=False,
-                        detector_backend="opencv"
+                        detector_backend="retinaface"
                     )
                     
                     if result["verified"]:
                         confidence = 1.0 - result["distance"]
+                        print(f"[FACE_DB] ✓ MATCH: {name} (conf: {confidence:.2f})")
+                        # Cleanup temp file
+                        if temp_path != face_image:
+                            os.remove(temp_path)
                         return (name, confidence, True)
                         
-                except Exception:
+                except Exception as e:
+                    # print(f"[FACE_DB] Compare error for {name}: {e}")
                     continue
+            
+            # Cleanup temp file
+            if temp_path != face_image:
+                os.remove(temp_path)
             
             return ("UNKNOWN", 0.0, False)
             
@@ -125,8 +154,8 @@ class VisionEngine:
     FONT_THICKNESS = 1
     
     # // [CONFIG]: Performance tuning
-    SKIP_FRAMES = 5  # Run YOLO inference every Nth frame
-    FACE_SKIP_FRAMES = 10  # Run face recognition every Nth detection frame (DeepFace is slower)
+    SKIP_FRAMES = 10  # Run YOLO inference every Nth frame (increased for performance)
+    FACE_SKIP_FRAMES = 15  # Run face recognition every Nth detection frame (DeepFace is heavy)
     PERSON_CLASS_ID = 0  # YOLO class ID for 'person'
     
     def __init__(
@@ -167,6 +196,11 @@ class VisionEngine:
         
         # // [THREADING]: Lock for thread-safe operations
         self._lock = threading.Lock()
+
+    def reload_faces(self) -> None:
+        """Reload the face database"""
+        print("[GODS_EYE] Reloading face database...")
+        self.face_db.reload_faces()
         
     def _init_csv_log(self) -> None:
         """Initialize CSV log file"""
@@ -259,18 +293,21 @@ class VisionEngine:
         try:
             h, w = frame.shape[:2]
             pad = 10
-            crop_y1 = max(0, y1 - pad)
-            crop_y2 = min(h, y2 + pad)
             crop_x1 = max(0, x1 - pad)
             crop_x2 = min(w, x2 + pad)
             
-            person_crop = frame[crop_y1:crop_y2, crop_x1:crop_x2]
+            # // [HEAD_REGION]: Extract upper 40% of person bbox (where face is)
+            person_height = y2 - y1
+            head_y1 = max(0, y1 - pad)
+            head_y2 = min(h, y1 + int(person_height * 0.4))  # Top 40% = head region
             
-            if person_crop.size == 0:
+            head_crop = frame[head_y1:head_y2, crop_x1:crop_x2]
+            
+            if head_crop.size == 0 or head_crop.shape[0] < 20 or head_crop.shape[1] < 20:
                 return ("UNKNOWN", 0.0, False)
             
             # // [IDENTIFY]: Use DeepFace to match against known faces
-            return self.face_db.identify_face(person_crop)
+            return self.face_db.identify_face(head_crop)
             
         except Exception as e:
             print(f"[IDENTIFY] Error: {e}")

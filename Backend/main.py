@@ -9,9 +9,13 @@ Serves MJPEG video stream and detection logs via REST API.
 
 import atexit
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse, JSONResponse
+import shutil
+import os
+from pathlib import Path
+from typing import List
 
 from vision_engine import VisionEngine
 
@@ -119,6 +123,84 @@ async def get_status():
         "status": "success",
         "data": status
     })
+
+
+@app.get("/faces")
+async def get_faces():
+    """
+    // [ROUTE]: List Known Faces
+    // [ACCESS]: GET /faces
+    // [RETURNS]: List of registered identities
+    """
+    faces = list(vision_engine.face_db.known_faces.keys())
+    return JSONResponse(content={
+        "status": "success",
+        "count": len(faces),
+        "faces": faces
+    })
+
+
+@app.post("/faces")
+async def upload_face(file: UploadFile = File(...)):
+    """
+    // [ROUTE]: Upload New Face
+    // [ACCESS]: POST /faces
+    // [PAYLOAD]: multipart/form-data (image file)
+    """
+    try:
+        # Validate file type
+        if not file.content_type.startswith("image/"):
+            raise HTTPException(status_code=400, detail="File must be an image")
+            
+        # Create known_faces directory if needed
+        save_dir = Path("known_faces")
+        save_dir.mkdir(exist_ok=True)
+        
+        # Save file
+        file_path = save_dir / file.filename
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        # Reload database
+        vision_engine.reload_faces()
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Registered face: {file.filename}",
+            "filename": file.filename
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/faces/{name}")
+async def delete_face(name: str):
+    """
+    // [ROUTE]: Delete Face
+    // [ACCESS]: DELETE /faces/{name}
+    """
+    try:
+        # Find the file associated with the name
+        target_path = None
+        if name in vision_engine.face_db.known_faces:
+            target_path = vision_engine.face_db.known_faces[name]
+        
+        if not target_path or not os.path.exists(target_path):
+            raise HTTPException(status_code=404, detail="Face not found")
+            
+        # Delete file
+        os.remove(target_path)
+        
+        # Reload database
+        vision_engine.reload_faces()
+        
+        return JSONResponse(content={
+            "status": "success",
+            "message": f"Deleted identity: {name}"
+        })
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # // ============================================================

@@ -22,7 +22,12 @@ build/
 *.pt
 
 # Detection logs (generated at runtime)
+# Detection logs (generated at runtime)
 detection_history.csv
+
+# Known faces (user-specific data)
+Backend/known_faces/*
+!Backend/known_faces/.gitkeep
 
 # ============================
 # Node.js / Frontend

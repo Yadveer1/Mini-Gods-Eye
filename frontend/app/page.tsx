@@ -21,13 +21,116 @@ interface SystemStatus {
 }
 
 // // [CONFIG]: Backend API endpoints
-const API_BASE = "http://localhost:8000";
+const API_BASE = "https://capacity-spirits-donor-respiratory.trycloudflare.com";
 const VIDEO_FEED_URL = `${API_BASE}/video_feed`;
 const LOGS_URL = `${API_BASE}/logs`;
 const STATUS_URL = `${API_BASE}/status`;
 
 // // [POLL]: Refresh interval in milliseconds
 const POLL_INTERVAL = 2000;
+
+// // [COMPONENT]: Face Management Panel
+function FaceManager() {
+  const [faces, setFaces] = useState<string[]>([]);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const fetchFaces = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE}/faces`);
+      const data = await res.json();
+      if (data.status === "success") {
+        setFaces(data.faces);
+      }
+    } catch (e) {
+      console.error("Failed to fetch faces", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchFaces();
+  }, [fetchFaces]);
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files || e.target.files.length === 0) return;
+    
+    setIsUploading(true);
+    const file = e.target.files[0];
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      await fetch(`${API_BASE}/faces`, {
+        method: "POST",
+        body: formData,
+      });
+      await fetchFaces();
+    } catch (e) {
+      console.error("Upload failed", e);
+    } finally {
+      setIsUploading(false);
+      // Reset input
+      e.target.value = "";
+    }
+  };
+
+  const handleDelete = async (name: string) => {
+    if (!confirm(`Delete identity: ${name}?`)) return;
+    try {
+      await fetch(`${API_BASE}/faces/${name}`, {
+        method: "DELETE",
+      });
+      await fetchFaces();
+    } catch (e) {
+      console.error("Delete failed", e);
+    }
+  };
+
+  return (
+    <aside className="tactical-border flex flex-col overflow-hidden h-2/5">
+      <div className="p-3 border-b border-[#FF6300]/30 flex justify-between items-center bg-[#FF6300]/10">
+        <h2 className="text-[#FF6300] text-xs uppercase tracking-widest">
+          [DB] // KNOWN FACES
+        </h2>
+        <span className="text-xs text-gray-400">{faces.length} RECS</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto tactical-scroll p-2">
+        {faces.length === 0 ? (
+          <div className="text-center text-gray-600 text-xs py-4">
+            NO RECORDS FOUND
+          </div>
+        ) : (
+          <ul className="space-y-1">
+            {faces.map((name) => (
+              <li key={name} className="flex justify-between items-center text-xs p-2 bg-black border border-gray-800 hover:border-[#FF6300] group">
+                <span className="text-gray-300 font-mono truncate max-w-[70%]">{name}</span>
+                <button 
+                  onClick={() => handleDelete(name)}
+                  className="text-red-500 opacity-50 group-hover:opacity-100 hover:text-red-400 font-bold px-1"
+                >
+                  [DEL]
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="p-2 border-t border-[#FF6300]/30 bg-black">
+        <label className={`block text-center text-xs p-2 border border-dashed border-[#FF6300] text-[#FF6300] cursor-pointer hover:bg-[#FF6300]/10 transition-colors ${isUploading ? 'opacity-50 pointer-events-none' : ''}`}>
+          {isUploading ? "UPLOADING..." : "+ UPLOAD IDENTITY"}
+          <input 
+            type="file" 
+            accept="image/*" 
+            className="hidden" 
+            onChange={handleUpload}
+            disabled={isUploading}
+          />
+        </label>
+      </div>
+    </aside>
+  );
+}
 
 export default function CommandCenter() {
   // // [STATE]: Detection logs from backend
@@ -179,65 +282,69 @@ export default function CommandCenter() {
           </div>
         </section>
 
-        {/* // [INTEL]: Detection logs panel - 25% width */}
-        <aside className="tactical-border flex flex-col overflow-hidden">
-          {/* // [HEADER]: Intel panel header */}
-          <div className="p-3 border-b border-[#FF6300]/30 flex-shrink-0">
-            <h2 className="text-[#FF6300] text-xs uppercase tracking-widest">
-              [INTEL_LOG] // DETECTIONS
-            </h2>
-            <p className="text-xs text-gray-500 mt-1">
-              {logs.length} ENTRIES // POLLING: {POLL_INTERVAL / 1000}s
-            </p>
-          </div>
+          {/* // [SIDEBAR]: Right column with stacked panels */}
+        <div className="lg:col-span-1 flex flex-col gap-4 h-full"> 
+          
+          {/* // [PANEL 1]: Intel Logs (Top ~60%) */}
+          <aside className="tactical-border flex flex-col overflow-hidden h-3/5">
+            <div className="p-3 border-b border-[#FF6300]/30 flex-shrink-0">
+              <h2 className="text-[#FF6300] text-xs uppercase tracking-widest">
+                [INTEL_LOG] // DETECTIONS
+              </h2>
+              <p className="text-xs text-gray-500 mt-1">
+                {logs.length} ENTRIES // POLLING: {POLL_INTERVAL / 1000}s
+              </p>
+            </div>
 
-          {/* // [LOGS]: Scrollable log entries */}
-          <div className="flex-1 overflow-y-auto tactical-scroll p-2">
-            {logs.length === 0 ? (
-              <div className="text-center text-gray-600 text-xs py-8">
-                <p>NO DETECTIONS</p>
-                <p className="mt-1">AWAITING TARGETS...</p>
-              </div>
-            ) : (
-              <ul className="space-y-1">
-                {logs.map((log, index) => (
-                  <li
-                    key={`${log.timestamp}-${index}`}
-                    className="text-xs p-2 bg-[#FF6300]/5 border-l-2 border-[#FF6300]/50 hover:bg-[#FF6300]/10 transition-colors"
-                  >
-                    <div className="flex justify-between items-start">
-                      <span className="text-[#FF6300]">
-                        ▸ {formatTimestamp(log.timestamp)}
-                      </span>
-                      <span className="text-gray-500">
-                        {Math.round(log.confidence * 100)}%
-                      </span>
-                    </div>
-                    <p className="text-gray-400 mt-1">
-                      DETECTED: {log.num_persons} PERSON{log.num_persons !== 1 ? "S" : ""}
-                    </p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {/* // [FOOTER]: Quick stats */}
-          <div className="p-3 border-t border-[#FF6300]/30 flex-shrink-0 text-xs">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="text-center p-2 bg-[#FF6300]/10">
-                <p className="text-gray-500">TOTAL</p>
-                <p className="text-[#FF6300] font-bold">{logs.length}</p>
-              </div>
-              <div className="text-center p-2 bg-[#FF6300]/10">
-                <p className="text-gray-500">STATUS</p>
-                <p className={status?.person_detected ? "text-red-500 font-bold" : "text-cyan-500"}>
-                  {status?.person_detected ? "ACTIVE" : "CLEAR"}
-                </p>
+            <div className="flex-1 overflow-y-auto tactical-scroll p-2">
+              {logs.length === 0 ? (
+                <div className="text-center text-gray-600 text-xs py-8">
+                  <p>NO DETECTIONS</p>
+                  <p className="mt-1">AWAITING TARGETS...</p>
+                </div>
+              ) : (
+                <ul className="space-y-1">
+                  {logs.map((log, index) => (
+                    <li
+                      key={`${log.timestamp}-${index}`}
+                      className="text-xs p-2 bg-[#FF6300]/5 border-l-2 border-[#FF6300]/50 hover:bg-[#FF6300]/10 transition-colors"
+                    >
+                      <div className="flex justify-between items-start">
+                        <span className="text-[#FF6300]">
+                          ▸ {formatTimestamp(log.timestamp)}
+                        </span>
+                        <span className="text-gray-500">
+                          {Math.round(log.confidence * 100)}%
+                        </span>
+                      </div>
+                      <p className="text-gray-400 mt-1">
+                        DETECTED: {log.num_persons} PERSON{log.num_persons !== 1 ? "S" : ""}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            {/* // [FOOTER]: Quick stats */}
+            <div className="p-3 border-t border-[#FF6300]/30 flex-shrink-0 text-xs">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="text-center p-2 bg-[#FF6300]/10">
+                  <p className="text-gray-500">TOTAL</p>
+                  <p className="text-[#FF6300] font-bold">{logs.length}</p>
+                </div>
+                <div className="text-center p-2 bg-[#FF6300]/10">
+                  <p className="text-gray-500">STATUS</p>
+                  <p className={status?.person_detected ? "text-red-500 font-bold" : "text-cyan-500"}>
+                    {status?.person_detected ? "ACTIVE" : "CLEAR"}
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
-        </aside>
+          </aside>
+
+          {/* // [PANEL 2]: Face Database (Bottom ~40%) */}
+          <FaceManager />
+        </div>
       </main>
 
       {/* // [FOOTER]: System info bar */}
